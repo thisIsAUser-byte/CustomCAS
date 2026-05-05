@@ -130,7 +130,11 @@ class LargeInteger extends ScalarAtom {
     static final LargeInteger ninetySeven = new LargeInteger(97L);
     static final LargeInteger hundred = new LargeInteger(100L);
     static final LargeInteger hundredOne = new LargeInteger(101L);
-    static final LargeInteger threeHundredThree = new LargeInteger(103L);
+    static final LargeInteger hundredThree = new LargeInteger(103L);
+    static final LargeInteger hundredSeven  = new LargeInteger(107L);
+    static final LargeInteger hundredNine = new LargeInteger(109L);
+    static final LargeInteger hundredThirteen = new LargeInteger(113L);
+    static final LargeInteger hundredTwentySeven = new LargeInteger(127L);
     static final LargeInteger thousand = new LargeInteger(1000L);
     static final LargeInteger thousandThree = new LargeInteger(1003L);
     static final LargeInteger threeThousandThree = new LargeInteger(3003L);
@@ -138,6 +142,10 @@ class LargeInteger extends ScalarAtom {
     static final LargeInteger billion = new LargeInteger(1000000000L);
     static final LargeInteger trillion = new LargeInteger(1000000000000L);
     static final LargeInteger quadrillion = new LargeInteger(1000000000000000L);
+    private static final LargeInteger[] smallPrimes = {two, three, five, seven, eleven, thirteen, seventeen, nineteen,
+            twentyThree, twentyNine, thirtyOne, thirtySeven, fortyOne, fortyThree, fortySeven, fiftyThree, fiftyNine,
+            sixtyOne, sixtySeven, seventyOne, seventyThree, seventyNine, eightyThree, eightyNine, ninetySeven, hundredOne,
+            hundredThree, hundredSeven, hundredNine, hundredThirteen, hundredTwentySeven};
     private static final SecureRandom RNG = new SecureRandom();
     private final boolean sign;
     //these constructors serve as various ways to build the number from structure of the inputs.
@@ -258,20 +266,18 @@ class LargeInteger extends ScalarAtom {
     @Override
     public LargeInteger ceil(){return this;}
     //this serves as a way to optimize modulo for large integer powers.
-    public LargeFraction powMod(LargeInteger exp, LargeInteger rem){
-        LargeFraction result = new LargeFraction(1);
-        LargeInteger base = new LargeInteger(this.number);
-        LargeInteger expTemp = new LargeInteger(exp.number);
+    public LargeInteger powMod(LargeInteger exp, LargeInteger rem){
+        if(exp.sign() == -1)
+            throw new ArithmeticException("Error: PowMod not supported for fractions");
+        LargeInteger result = LargeInteger.one;
+        LargeInteger base = (LargeInteger) this.magnitude().multiply(this.sign()).mod(rem);
+        LargeInteger expTemp = exp.magnitude();
         while(expTemp.sign() > 0L){
-            if(expTemp.mod2().equalsTo(one)){
-                if(exp.sign() == 1L) result = (LargeFraction) result.multiply(base).mod(rem);
-                else result = (LargeFraction) result.divide(base).mod(rem);
-            }
-            base = (LargeInteger) base.square();
-            if(exp.sign() == 1L) base = (LargeInteger) base.mod(rem);
+            if(expTemp.isOdd())
+                result = (LargeInteger) result.multiply(base).mod(rem);
+            base = (LargeInteger) base.square().mod(rem);
             expTemp = expTemp.LongDivision(two);
         }
-        if(rem.sign() == -1) result = (LargeFraction) result.add(rem);
         return result;
     }
     //generates a random integer within a given range.
@@ -291,58 +297,51 @@ class LargeInteger extends ScalarAtom {
         return (LargeInteger) result.add(bottom);
     }
     //uses Miller-Rabin to determine if an integer is prime.
-    public boolean isPrime(){
+    public boolean isNotPrime(){
         if(this.lessThan(LargeInteger.two))
-            return false;
-        LargeInteger[] smallPrimes = {two, three, five, seven, eleven, thirteen, seventeen, nineteen, twentyThree, twentyNine, thirtyOne, thirtySeven, fortyOne, fortyThree, fortySeven, fiftyThree, fiftyNine, sixtyOne, sixtySeven, seventyOne, seventyThree, seventyNine, eightyThree, eightyNine, ninetySeven, hundredOne};
-        for(LargeInteger n: smallPrimes)
-            if(this.mod(n).equalsTo(LargeInteger.zero)){
-                if(this.notEqualsTo(n)) return false;
-                return true;
-            }
-        int rounds = 60;
-        for(int i = 0; i < rounds; i++){
-            LargeInteger witness = random(two, (LargeInteger) this.subtract(two));
-            if(!isWitness(witness)) return false;
+            return true;
+        if(this.isEven()) return !this.equalsTo(two);
+        for(int i = 1; i < smallPrimes.length; i++){
+            if(this.mod(smallPrimes[i]).equalsTo(LargeInteger.zero))
+                return !this.equalsTo(smallPrimes[i]);
         }
-        return true;
-    }
-    //private helper for isPrime
-    private boolean isWitness(LargeInteger witness){
         LargeInteger nMinusOne = (LargeInteger) this.subtract(one);
-        LargeInteger multiplier = new LargeInteger(nMinusOne.number);
-        LargeInteger twoPower = zero;
-        while(multiplier.mod(two).equalsTo(zero)){
-            twoPower = (LargeInteger) twoPower.add(one);
+        LargeInteger nMinusTwo = (LargeInteger) this.subtract(two);
+        LargeInteger multiplier = nMinusOne.magnitude();
+        int twoPower = 0;
+        while(multiplier.isEven()){
+            twoPower++;
             multiplier = multiplier.LongDivision(two);
         }
-        LargeInteger x = witness.powMod(multiplier, this).numerator;
-        if(x.equalsTo(one) || x.equalsTo(nMinusOne)) return true;
-        for(LargeInteger r = one; r.lessThan(twoPower); r= (LargeInteger) r.add(one)){
+        int rounds = 60;
+        for(int i = 0; i < rounds; i++){
+            LargeInteger witness = random(two, nMinusTwo);
+            if(!isWitness(witness, multiplier, twoPower, nMinusOne)) return true;
+        }
+        return false;
+    }
+    //private helper for isPrime
+    private boolean isWitness(LargeInteger witness, LargeInteger multiplier, int twoPower, LargeInteger nMinusOne){
+        LargeInteger x = witness.powMod(multiplier, this);
+        if (x.equalsTo(one) || x.equalsTo(nMinusOne)) return true;
+        for (int r = 1; r < twoPower; r++) {
             x = (LargeInteger) x.multiply(x).mod(this);
-            if(x.equalsTo(nMinusOne)) return true;
+            if (x.equalsTo(nMinusOne)) return true;
+            if (x.equalsTo(one)) return false;
         }
         return false;
     }
     //helper that finds a nontrivial factor of the input.
-    public LargeInteger pollardsRho(){
-        while(true){
-            LargeInteger x = random(two, (LargeInteger) this.subtract(one));
-            LargeInteger y = new LargeInteger(x.number);
-            LargeInteger c = random(one, (LargeInteger) this.subtract(two));
-            //gcd step
-            LargeInteger G = one;
-            while(G.equalsTo(one)){
-                //tortoise step
-                x = (LargeInteger) x.multiply(x).add(c).mod(this);
-                //hare step
-                y = (LargeInteger) y.multiply(y).add(c).mod(this);
-                y = (LargeInteger) y.multiply(y).add(c).mod(this);
-                G = ((LargeInteger) x.subtract(y)).magnitude().gcd(this);
-            }
-            if(!G.equalsTo(this))
-                return G;
+    public LargeInteger pollardMinusOne(){
+        if(this.isEven()) return LargeInteger.two;
+        LargeInteger G = one;
+        LargeInteger Q = two;
+        for(LargeInteger j = two; j.lessThan(thousand) && G.equalsTo(one); j=j.add(1)){
+            Q = Q.powMod(j, this);
+            G = Q.subtract(1).gcd(this);
         }
+        if(G.lessThan(this) && G.greaterThan(one)) return G;
+        return one;
     }
     //factors a number using trial division for small primes and pollard's rho for the rest. despite the implications, it is not strict prime factorization. why? well, 0 and 1 do not have prime factorizations. however, a total function is basically required in programming.
     public ArrayList<PrimeExponent> factor(){
@@ -353,13 +352,8 @@ class LargeInteger extends ScalarAtom {
         }else if(this.equalsTo(one)){
             p.add(new PrimeExponent(one, (LargeFraction) one.divide(one)));
             return p;
-        }else if(this.isPrime()){
-            p.add(new PrimeExponent(this, (LargeFraction) one.divide(one)));
-            return p;
-        }
-        if(this.sign() == -1L) p.add(new PrimeExponent(negativeOne, (LargeFraction) one.divide(one)));
+        }else if(this.sign() == -1L) p.add(new PrimeExponent(negativeOne, (LargeFraction) one.divide(one)));
         LargeInteger copy = this.magnitude();
-        LargeInteger[] smallPrimes = {two, three, five, seven, eleven, thirteen, seventeen, nineteen, twentyThree, twentyNine, thirtyOne, thirtySeven, fortyOne, fortyThree, fortySeven, fiftyThree, fiftyNine, sixtyOne, sixtySeven, seventyOne, seventyThree, seventyNine, eightyThree, eightyNine, ninetySeven, hundredOne};
         for(LargeInteger s: smallPrimes){
             LargeInteger exp = zero;
             while(copy.mod(s).equalsTo(zero)){
@@ -370,12 +364,14 @@ class LargeInteger extends ScalarAtom {
         }
         if(copy.equalsTo(one)) return p;
         //pollard's rho
-        while(!copy.isPrime() && copy.greaterThan(one)){
-            LargeInteger P = copy.pollardsRho();
-            if(!P.isPrime()){
+        while(copy.greaterThan(one) && copy.isNotPrime()){
+            LargeInteger P = copy.pollardMinusOne();
+            if(P.isNotPrime()){
                 ArrayList<PrimeExponent> list = P.factor();
                 for(PrimeExponent pr: list) p.add(new PrimeExponent(pr.base, pr.exponent));
-            }else p.add(new PrimeExponent(P, new LargeFraction(1)));
+            }else if(P.equalsTo(one))
+                throw new IllegalStateException("Error: Could not find the correct factors");
+            else p.add(new PrimeExponent(P, new LargeFraction(1)));
             copy = copy.LongDivision(P);
         }
         if(copy.greaterThan(one)) p.add(new PrimeExponent(copy, new LargeFraction(1)));
@@ -458,7 +454,7 @@ class LargeInteger extends ScalarAtom {
             ArrayList<Root> rt = new ArrayList<>();
             rt.add(new Root((LargeFraction) this.divide(one), new LargeFraction(0), new LargeFraction(0), new LargeFraction(1)));
             rt.add(new Root(new LargeFraction(0), new LargeFraction(0), (LargeExponent) l));
-            return new RootSum(rt).sign();
+            return new RootSum(rt, new LargeFraction(0)).sign();
         }
         return this.subtract(l).sign();
     }
@@ -508,7 +504,7 @@ class LargeInteger extends ScalarAtom {
                 copy = copy2.magnitude();
                 copy2 = temp.magnitude();
             }
-            copy2 = (LargeInteger) copy2.subtract(copy);
+            copy2 = (LargeInteger) copy2.mod(copy);
             while(copy2.isEven() && copy2.sign() != 0L) copy2 = copy2.LongDivision(two);
         }
         for(LargeInteger i = zero; i.lessThan(commonTwos); i = (LargeInteger) i.add(one)) copy = (LargeInteger) copy.multiply(two);
@@ -603,7 +599,7 @@ class LargeInteger extends ScalarAtom {
             RootSum rt = new RootSum();
             for(Root r: ((RootSum) other).sum) rt.add(new Root(r.rationalPart, r.coefficient, r.radical, r.power));
             rt.add(new Root((LargeFraction) this.divide(LargeInteger.one), new LargeFraction(0), new LargeFraction(0), new LargeFraction(1)));
-            return new RootSum(rt.sum);
+            return new RootSum(rt.sum, new LargeFraction(0));
         }
         throw new IllegalArgumentException("Error: Operations with these types together not supported yet");
     }
@@ -669,7 +665,7 @@ class LargeInteger extends ScalarAtom {
         else if(other instanceof RootSum){
             RootSum rt = new RootSum();
             for(Root r: ((RootSum) other).sum) rt.add(new Root((LargeFraction) r.rationalPart.multiply(this), (LargeFraction) r.coefficient.multiply(this), r.radical, r.power));
-            return new RootSum(rt.sum);
+            return new RootSum(rt.sum, new LargeFraction(0));
         }
         throw new IllegalArgumentException("Error: Operation with these types together not supported yet");
     }
@@ -679,9 +675,30 @@ class LargeInteger extends ScalarAtom {
             result = (LargeFraction) result.multiply(w);
         return (LargeFraction) this.multiply(result);
     }
-    public LargeInteger multiply(long greg){return (LargeInteger) this.multiply(new LargeInteger(greg));}
+    public LargeInteger multiply(long greg){
+        if(greg == 0) return LargeInteger.zero;
+        LargeInteger result = this.magnitude();
+        result.number.replaceAll(aLong -> aLong * greg);
+        for(int i = result.number.size()-1; i > 0; i--){
+            result.number.set(i-1, result.number.get(i-1) + result.number.get(i)/1000000000L);
+            result.number.set(i, result.number.get(i) % 1000000000L);
+        }
+        result.number.set(0, this.sign()*result.number.getFirst());
+        return new LargeInteger(result.number);
+    }
     @Override
-    public ScalarAtom square(){return this.multiply(this);}
+    public ScalarAtom square(){
+        LargeInteger result = zero;
+        for(int i = 0; i < this.number.size(); i++)
+            for(int j = i; j < this.number.size(); j++){
+                LargeInteger term = LargeInteger.one;
+                term = term.shift(2*this.number.size()-i-j-2);
+                term = term.multiply(this.number.get(i)*this.number.get(j));
+                if(i != j) term = term.multiply(2);
+                result = (LargeInteger) result.add(term);
+            }
+        return result;
+    }
     @Override
     public ScalarAtom cube(){return this.multiply(this).multiply(this);}
     private static LargeInteger productRange(LargeInteger left, LargeInteger right) {
@@ -722,12 +739,25 @@ class LargeInteger extends ScalarAtom {
         for(int i = 0; i < copy2.number.size(); i++) remainder = remainder.shift(1).add(copy.number.get(i));
         ArrayList<Long> quotient = new ArrayList<>();
         for(int i = 0; i <= copy.number.size() - copy2.number.size(); i++){
+            //pad zeros
+            while(remainder.number.size() < copy2.number.size()+1)
+                remainder.number.addFirst(0L);
             //estimate
-            long qHat = remainder.number.get(0)*1000000000L + remainder.number.get(1);
-            qHat = qHat/copy2.number.getFirst();
-            qHat = Math.min(qHat, 999999999L);
+            long numerator = remainder.number.getFirst() * 1000000000L + remainder.number.get(1);
+            long qHat = numerator/copy2.number.getFirst();
+            long rHat = numerator%copy2.number.getFirst();
+            if (qHat >= 1000000000L) {
+                qHat = 999999999L;
+                rHat = numerator - qHat * copy2.number.getFirst();
+            }
+            while(qHat * copy2.number.get(1) > rHat * 1000000000L + remainder.number.get(2)){
+                qHat--;
+                rHat += copy2.number.getFirst();
+                if (rHat >= 1000000000L)
+                    break;
+            }
             remainder = (LargeInteger) remainder.subtract(copy2.multiply(qHat));
-            while(remainder.sign() < 0L){
+            if (remainder.sign() < 0L) {
                 qHat--;
                 remainder = (LargeInteger) remainder.add(copy2);
             }
@@ -1148,7 +1178,7 @@ class LargeFraction extends ScalarAtom{
             RootSum rt = new RootSum();
             for(Root r: ((RootSum) other).sum) rt.add(new Root(r.rationalPart, r.coefficient, r.radical, r.power));
             rt.add(new Root(this, new LargeFraction(0), new LargeFraction(0), new LargeFraction(1)));
-            return new RootSum(rt.sum);
+            return new RootSum(rt.sum, new LargeFraction(0));
         }
         throw new IllegalArgumentException("Error: Operation with these types together not supported yet");
     }
@@ -1166,7 +1196,7 @@ class LargeFraction extends ScalarAtom{
             RootSum rt = new RootSum();
             for(Root r: ((RootSum) other).sum) rt.add(new Root((LargeFraction) r.rationalPart.negate(), (LargeFraction) r.coefficient.negate(), r.radical, r.power));
             rt.add(new Root(this, new LargeFraction(0), new LargeFraction(0), new LargeFraction(1)));
-            return new RootSum(rt.sum);
+            return new RootSum(rt.sum, new LargeFraction(0));
         }
         throw new IllegalArgumentException("Error: Operation with these types together not supported yet");
     }
@@ -1187,7 +1217,7 @@ class LargeFraction extends ScalarAtom{
             LargeInteger b2 = this.denominator.LongDivision(g2);
             return a2.multiply(c2).divide(b2.multiply(d2));
         }else if(other instanceof Root) return new Root((LargeFraction) ((Root) other).rationalPart.multiply(this), (LargeFraction) ((Root) other).coefficient.multiply(this), ((Root) other).radical, ((Root) other).power);
-        else if(other instanceof RootSum) return new RootSum(((RootSum)other).sum).multiply(this);
+        else if(other instanceof RootSum) return new RootSum(((RootSum)other).sum, new LargeFraction(0)).multiply(this);
         throw new IllegalArgumentException("Error: Operation with these types together not supported yet");
     }
     public LargeFraction multiply(long other){return (LargeFraction) this.multiply(new LargeFraction(other));}
@@ -1202,7 +1232,8 @@ class LargeFraction extends ScalarAtom{
     public ScalarAtom cube(){return this.multiply(this).multiply(this);}
     @Override
     public ScalarAtom divide(ScalarAtom other) {
-        if(other instanceof LargeInteger) return this.divide(new LargeFraction((LargeInteger) other, LargeInteger.one));
+        if(other instanceof LargeInteger)
+            return this.multiply(new LargeFraction(LargeInteger.one, (LargeInteger) other));
         else if(other instanceof LargeFraction) return this.multiply(other.reciprocal());
         else if(other instanceof LargeExponent) return new LargeExponent(this, new LargeFraction(1)).divide(other);
         else if(other instanceof Root || other instanceof RootSum) return other.reciprocal().multiply(this);
@@ -1550,7 +1581,7 @@ class PrimeExponent extends ScalarAtom{
     public boolean notEqualsTo(Atom other) {return !equalsTo(other);}
     public long sign(){
         if(base.sign() == -1){
-            if(!this.isReal()) throw new IllegalArgumentException("Error: Sign is not real");
+            if(this.isNotReal()) throw new IllegalArgumentException("Error: Sign is not real");
             if(exponent.numerator.isOdd()) return -1L;
             return 1L;
         }else if(base.sign() == 1L) return 1L;
@@ -1592,13 +1623,12 @@ class PrimeExponent extends ScalarAtom{
     @Override
     public boolean lesserThanOrEqualTo(ScalarAtom other) {return this.compareTo(other) <= 0L;}
     @Override
-    public ScalarAtom negate() {return this.multiply(new LargeExponent(new LargeFraction(-1), new LargeFraction(1)));}
+    public ScalarAtom negate() {return this.multiply(new LargeFraction(-1L));}
     public boolean isRational(){return exponent.equalsTo(new LargeFraction(1));}
-    public boolean isReal(){return base.sign() != -1 || !exponent.denominator.isEven();}
+    public boolean isNotReal(){return base.sign() == -1 && exponent.denominator.isEven();}
     @Override
     public LargeInteger floor(){
-        if(!this.isReal())
-            throw new IllegalArgumentException("Error: Complex numbers do not have floor or ceil");
+        if(this.isNotReal()) throw new IllegalStateException("Error: Cannot floor a non-real atom");
         else if(this.isRational())
             return base.floor();
         boolean negativeResult = base.sign() == -1L
@@ -1639,47 +1669,39 @@ class PrimeExponent extends ScalarAtom{
             RootSum r = new RootSum();
             r.sum.add(new Root(new LargeFraction(0), new LargeFraction(1), this));
             r.sum.add(new Root(new LargeFraction(0), new LargeFraction(1), (LargeExponent) other));
-            return new RootSum(r.sum);
+            return new RootSum(r.sum, new LargeFraction(0));
         }else if(other instanceof Root){
             RootSum r = new RootSum();
             r.sum.add(new Root(new LargeFraction(0), new LargeFraction(1), this));
             r.sum.add((Root) other);
-            return new RootSum(r.sum);
+            return new RootSum(r.sum, new LargeFraction(0));
         }else if(other instanceof RootSum){
             RootSum rt = new RootSum();
             rt.sum.add(new Root(new LargeFraction(0), new LargeFraction(1), this));
             for(Root r: ((RootSum) other).sum) rt.sum.add(new Root(r.rationalPart, r.coefficient, r.radical, r.power));
-            return new RootSum(rt.sum);
+            return new RootSum(rt.sum, new  LargeFraction(0));
         }
         throw new IllegalArgumentException("Error: Operation with these types together not supported yet");
     }
     @Override
-    public ScalarAtom subtract(ScalarAtom other) {
-        if(other instanceof LargeInteger || other instanceof LargeFraction) return new Root((LargeFraction) other.multiply(new LargeFraction(-1)), new LargeFraction(1), this);
-        else if(other instanceof LargeExponent){
-            RootSum r = new RootSum();
-            r.sum.add(new Root(new LargeFraction(0), new LargeFraction(1), this));
-            r.sum.add(new Root(new LargeFraction(0), new LargeFraction(-1), (LargeExponent) other));
-            return new RootSum(r.sum);
-        }else if(other instanceof Root){
-            RootSum r = new RootSum();
-            r.sum.add(new Root(new LargeFraction(0), new LargeFraction(1), this));
-            r.sum.add((Root) other.multiply(new LargeFraction(-1)));
-            return new RootSum(r.sum);
-        }else if(other instanceof RootSum){
-            RootSum rt = new RootSum();
-            rt.sum.add(new Root(new LargeFraction(0), new LargeFraction(1), this));
-            for(Root r: ((RootSum) other).sum)
-                rt.sum.add(new Root((LargeFraction) r.rationalPart.negate(), (LargeFraction) r.coefficient.negate(), r.radical, r.power));
-            return new RootSum(rt.sum);
-        }
-        throw new IllegalArgumentException("Error: Operation with these types together not supported yet");
-    }
-
+    public ScalarAtom subtract(ScalarAtom other) {return this.add(other.negate());}
     @Override
     public ScalarAtom multiply(ScalarAtom other) {
         if(other instanceof LargeFraction || other instanceof LargeInteger){
-            return this.multiply(new LargeExponent((LargeFraction) other.divide(LargeInteger.one), new LargeFraction(1)));
+            ArrayList<PrimeExponent> pr = this.factor();
+            ArrayList<PrimeExponent> pr2 = ((LargeFraction)other.divide(LargeInteger.one)).factor();
+            for(PrimeExponent p: pr){
+                for(int j = 0; j < pr2.size(); j++){
+                    if(pr2.get(j).base.equalsTo(p.base)){
+                        p.exponent = (LargeFraction) p.exponent.add(pr2.get(j).exponent);
+                        pr2.remove(j);
+                        j--;
+                    }
+                }
+            }
+            if(!pr2.isEmpty())
+                pr.addAll(pr2);
+            return LargeExponent.unfactor(pr);
         }else if(other instanceof LargeExponent){
             LargeExponent copy = new LargeExponent(this.base, this.exponent);
             LargeExponent copy2 = new LargeExponent(((LargeExponent) other).base, ((LargeExponent) other).exponent);
@@ -1708,11 +1730,11 @@ class PrimeExponent extends ScalarAtom{
             RootSum rt = new RootSum();
             rt.add(new Root(new LargeFraction(0), ((Root) other).rationalPart, this));
             rt.add(new Root(new LargeFraction(0), ((Root) other).coefficient, (LargeExponent) new LargeExponent(((Root) other).radical, ((Root) other).power).multiply(this)));
-            return new RootSum(rt.sum);
+            return new RootSum(rt.sum, new LargeFraction(0));
         }else if(other instanceof RootSum){
             RootSum rt = new RootSum();
             for(Root r: ((RootSum) other).sum) rt.add(this.multiply(new Root(r.rationalPart, r.coefficient, r.radical, r.power)));
-            return new RootSum(rt.sum);
+            return new RootSum(rt.sum, new  LargeFraction(0));
         }
         throw new IllegalArgumentException("Error: Operation with these types together not supported yet");
     }
@@ -1731,9 +1753,25 @@ class PrimeExponent extends ScalarAtom{
         return pr;
     }
     public static LargeExponent unfactor(ArrayList<PrimeExponent> pr){
-        LargeExponent l = new LargeExponent(new LargeFraction(1), new LargeFraction(1));
-        for(PrimeExponent p: pr) l = (LargeExponent) l.multiply(new LargeExponent((LargeFraction) p.base.divide(LargeInteger.one), p.exponent));
-        return l;
+        LargeFraction base = new LargeFraction(1);
+        ArrayList<LargeInteger> exps = new ArrayList<>();
+        for(PrimeExponent p: pr)
+            exps.add(p.exponent.denominator);
+        LargeInteger lc = exps.getFirst().lcm(exps);
+        for(PrimeExponent p: pr){
+            LargeInteger expTemp = (LargeInteger) p.exponent.numerator.multiply(lc.LongDivision(p.exponent.denominator));
+            LargeInteger basTemp = p.base.magnitude().multiply(p.base.sign());
+            while(expTemp.sign() != 0){
+                if(expTemp.isOdd()){
+                    if(p.exponent.sign() == -1L)
+                        base = (LargeFraction) base.divide(basTemp);
+                    else base = (LargeFraction) base.multiply(basTemp);
+                }
+                basTemp = (LargeInteger) basTemp.square();
+                expTemp = expTemp.LongDivision(LargeInteger.two);
+            }
+        }
+        return new LargeExponent(base, (LargeFraction) LargeInteger.one.divide(lc));
     }
     @Override
     public ScalarAtom divide(ScalarAtom other) {
@@ -1780,17 +1818,25 @@ class Root extends ScalarAtom{
     public LargeFraction power;
     public Root(LargeFraction f, LargeFraction c, LargeFraction r, LargeFraction pow){
         rationalPart = new LargeFraction(f.numerator, f.denominator);
-        coefficient = new LargeFraction(c.numerator, c.denominator);
+        coefficient = new LargeFraction(c.sign());
         radical = new LargeFraction(1);
         power = new LargeFraction(pow.numerator, pow.denominator);
-        if(power.denominator.isEven() && radical.lessThan(LargeInteger.zero)) return;
-        else if(radical.sign() == 0 || coefficient.sign() == 0){
+        if(r.sign() == 0 || coefficient.sign() == 0){
+            if(pow.sign() < 0 && r.sign() == 0L)
+                throw new ArithmeticException("Error: Cannot divide by 0");
+            else if(pow.sign() == 0L && r.sign() == 0L)
+                throw new ArithmeticException("Error: Indeterminate form: 0^0");
             radical = new LargeFraction(0);
             power = new LargeFraction(1);
             coefficient = new LargeFraction(0);
             return;
+        }else if(pow.denominator.isEven() && r.sign() < 0L){
+            radical = new LargeFraction(r.numerator, r.denominator);
+            power = new LargeFraction(pow.numerator,  pow.denominator);
+            coefficient = new LargeFraction(c.numerator, c.denominator);
+            return;
         }
-        LargeExponent E = new LargeExponent(r, pow);
+        LargeExponent E = (LargeExponent) new LargeExponent(r, pow).multiply(c.magnitude());
         ArrayList<PrimeExponent> pr = E.factor();
         for(int i = 0; i < pr.size(); i++){
             PrimeExponent p = pr.get(i);
@@ -1809,9 +1855,14 @@ class Root extends ScalarAtom{
                 i--;
             }
         }
-        E = LargeExponent.unfactor(pr);
-        radical = E.base;
-        power = E.exponent;
+        if(!pr.isEmpty()){
+            E = LargeExponent.unfactor(pr);
+            radical = E.base;
+            power = E.exponent;
+        }else{
+            radical = new LargeFraction(1);
+            power = new LargeFraction(1);
+        }
         if(radical.equalsTo(LargeInteger.one)){
             rationalPart = (LargeFraction) rationalPart.add(coefficient);
             coefficient = new LargeFraction(0);
@@ -1862,6 +1913,7 @@ class Root extends ScalarAtom{
     public boolean notEqualsTo(Atom other) {return !this.equalsTo(other);}
     @Override
     public LargeInteger floor() {
+        if(this.isNotReal()) throw new IllegalStateException("Error: Cannot floor a non-real atom");
         if(coefficient.sign() == 0L) return rationalPart.floor();
         LargeInteger f1 = new LargeExponent(radical, power).multiply(coefficient).floor();
         LargeInteger f2 = rationalPart.floor();
@@ -1891,10 +1943,12 @@ class Root extends ScalarAtom{
         if(cmp > 0L) return rSign;
         return termSign;
     }
-    public boolean isInteger(){return coefficient.sign() == 0 && rationalPart.denominator.equalsTo(LargeInteger.one);}
+    public boolean isNotInteger(){return coefficient.sign() != 0 || !rationalPart.denominator.equalsTo(LargeInteger.one);}
+    public boolean isNotReal(){return radical.sign() == -1 && power.denominator.isEven();}
+    public boolean isReal(){return !isNotReal();}
     @Override
-    public Root magnitude(){
-        if(new LargeExponent(radical, power).isReal()){
+    public ScalarAtom magnitude(){
+        if(this.isReal()){
             if(this.sign() == -1L) return new Root((LargeFraction) rationalPart.negate(), (LargeFraction) coefficient.negate(), radical, power);
             return this;
         }
@@ -1944,7 +1998,7 @@ class Root extends ScalarAtom{
             ArrayList<Root> r = new ArrayList<>();
             r.add(this);
             r.add(new Root(new LargeFraction(0), new LargeFraction(1), ((LargeExponent) other).base, ((LargeExponent) other).exponent));
-            return new RootSum(r);
+            return new RootSum(r, new LargeFraction(0));
         }
         throw new IllegalArgumentException("Error: Operation with these types together not supported yet");
     }
@@ -1959,7 +2013,7 @@ class Root extends ScalarAtom{
             ArrayList<Root> r = new ArrayList<>();
             r.add(this);
             r.add((Root) other.multiply(new LargeFraction(-1)));
-            return new RootSum(r);
+            return new RootSum(r, new LargeFraction(0));
         }
         throw new IllegalArgumentException("Error: Operation with these types together not supported yet");
     }
@@ -1970,23 +2024,19 @@ class Root extends ScalarAtom{
             ArrayList<Root> rt = new ArrayList<>();
             rt.add(new Root(new LargeFraction(0), this.rationalPart, ((LargeExponent) f).base, ((LargeExponent) f).exponent));
             rt.add(new Root(new LargeFraction(0), this.coefficient, (LargeExponent) new LargeExponent(this.radical, power).multiply(f)));
-            return new RootSum(rt);
+            return new RootSum(rt, new LargeFraction(0));
         }else if(f instanceof Root){
             ArrayList<Root> r = new ArrayList<>();
             r.add(new Root((LargeFraction) this.rationalPart.multiply(((Root) f).rationalPart), new LargeFraction(0), new LargeFraction(0), new LargeFraction(1)));
-            if(this.coefficient.equalsTo(LargeInteger.zero) && ((Root) f).coefficient.equalsTo(LargeInteger.zero)) return new RootSum(r);
+            if(this.coefficient.equalsTo(LargeInteger.zero) && ((Root) f).coefficient.equalsTo(LargeInteger.zero))
+                return new RootSum(r, new LargeFraction(0));
             r.add(new Root(this.rationalPart, (LargeFraction) ((Root) f).coefficient.multiply(this.rationalPart), ((Root)f).radical, ((Root) f).power));
             r.add(new Root(this.rationalPart, (LargeFraction) ((Root) f).rationalPart.multiply(this.coefficient), this.radical, this.power));
             LargeExponent l = (LargeExponent) new LargeExponent(this.radical, this.power).multiply(new LargeExponent(((Root)f).radical, ((Root) f).power));
             r.add(new Root(new LargeFraction(0), (LargeFraction) this.coefficient.multiply(((Root) f).coefficient), l.base, l.exponent));
-            return new RootSum(r);
-        }else if(f instanceof RootSum){
-            ArrayList<Root> rt = new ArrayList<>();
-            for(Root r: ((RootSum) f).sum)
-                for(Root k: ((RootSum)r.multiply(this)).sum)
-                    rt.add(new Root(k.rationalPart, k.coefficient, k.radical, k.power));
-            return new RootSum(rt);
-        }
+            return new RootSum(r, new LargeFraction(0));
+        }else if(f instanceof RootSum)
+            return f.multiply(this);
         throw new IllegalArgumentException("Error: Operation with these types together not supported yet");
     }
     @Override
@@ -2002,11 +2052,11 @@ class Root extends ScalarAtom{
         if(radical.equalsTo(LargeInteger.zero)){
             RootSum end = new RootSum();
             end.sum.add(new Root(rationalPart.reciprocal(), new LargeFraction(0), new LargeFraction(0), new LargeFraction(1)));
-            return new RootSum(end.sum);
+            return new RootSum(end.sum, new LargeFraction(0));
         }else if(rationalPart.equalsTo(LargeInteger.zero)){
             RootSum end = new RootSum();
             end.sum.add(new Root(new LargeFraction(0), coefficient.reciprocal(), radical.reciprocal(), power));
-            return new RootSum(end.sum);
+            return new RootSum(end.sum, new LargeFraction(0));
         }
         //generate basis
         ArrayList<LargeExponent> basis = new ArrayList<>();
@@ -2036,7 +2086,7 @@ class Root extends ScalarAtom{
         M = M.transpose().rref();
         ArrayList<Root> result = new ArrayList<>();
         for(int i = 0; i < basis.size(); i++) result.add(new Root(new LargeFraction(0), M.get(i, (int) (M.cols()-1)), basis.get(i)));
-        return new RootSum(result);
+        return new RootSum(result, new LargeFraction(0));
     }
     @Override
     public ScalarAtom divide(ScalarAtom other) {
@@ -2045,7 +2095,7 @@ class Root extends ScalarAtom{
             ArrayList<Root> rt = new ArrayList<>();
             rt.add(new Root(new LargeFraction(0), this.rationalPart, ((LargeExponent) other).base.reciprocal(), ((LargeExponent) other).exponent));
             rt.add(new Root(new LargeFraction(0), this.coefficient, (LargeExponent) new LargeExponent(this.radical, power).divide(other)));
-            return new RootSum(rt);
+            return new RootSum(rt, new LargeFraction(0));
         }
         else if(other instanceof Root || other instanceof RootSum) return other.reciprocal().multiply(this);
         throw new IllegalArgumentException("Error: Operation with these types together not supported yet");
@@ -2055,10 +2105,14 @@ class Root extends ScalarAtom{
 }
 class RootSum extends ScalarAtom{
     ArrayList<Root> sum;
-    public RootSum(){sum = new ArrayList<>();}
-    public RootSum(ArrayList<Root> r){
+    LargeFraction constant;
+    public RootSum(){sum = new ArrayList<>(); constant = new LargeFraction(0);}
+    public RootSum(ArrayList<Root> r, LargeFraction cons){
         sum = new ArrayList<>();
-        if(r.isEmpty()) return;
+        if(r.isEmpty()){
+            constant = new LargeFraction(cons.numerator, cons.denominator);
+            return;
+        }
         for(Root rt: r) sum.add(new Root(rt.rationalPart, rt.coefficient, rt.radical, rt.power));
         //combine like radicals
         for(int i = 0; i < sum.size()-1; i++){
@@ -2094,6 +2148,9 @@ class RootSum extends ScalarAtom{
             sum.getFirst().rationalPart = (LargeFraction) sum.getFirst().rationalPart.add(sum.get(i).rationalPart);
             sum.get(i).rationalPart = new LargeFraction(0);
         }
+        constant = new LargeFraction(cons.numerator, cons.denominator);
+        constant = (LargeFraction) cons.add(sum.getFirst().rationalPart);
+        sum.removeFirst();
         //eliminate zeros
         for(int i = 0; i < sum.size(); i++){
             if(sum.get(i).sign() == 0L){
@@ -2105,10 +2162,7 @@ class RootSum extends ScalarAtom{
     @Override
     public String toString(){
         StringBuilder str = new StringBuilder();
-        if(sum.isEmpty() || sum.getFirst().sign() == 0L){
-            str.append("0");
-            return str.toString();
-        }
+        str.append(constant);
         for(int i = 0; i < sum.size(); i++){
             if(i != 0){
                 if(sum.get(i).sign() == -1L) str.append(" - ");
@@ -2122,40 +2176,45 @@ class RootSum extends ScalarAtom{
     @Override
     public boolean equalsTo(Atom other) {
         if(!(other instanceof ScalarAtom)) return false;
-        else if(other instanceof LargeFraction || other instanceof LargeInteger) return sum.size() == 1 && sum.getFirst().equalsTo(other);
-        else if(other instanceof LargeExponent) return sum.size() == 1 && sum.getFirst().power.equalsTo(((LargeExponent) other).exponent) && sum.getFirst().radical.equalsTo(((LargeExponent) other).base);
-        else if(other instanceof Root) return sum.size() == 1 && sum.getFirst().equalsTo(other);
+        else if(other instanceof LargeFraction || other instanceof LargeInteger) return constant.equalsTo(other) && sum.isEmpty();
+        else if(other instanceof LargeExponent){
+            if(((LargeExponent) other).exponent.equalsTo(LargeInteger.one))
+                return constant.equalsTo(((LargeExponent) other).base);
+            return sum.getFirst().radical.equalsTo(((LargeExponent) other).base) && sum.getFirst().power.equalsTo(((LargeExponent) other).exponent);
+        }else if(other instanceof Root)
+            return sum.size() == 1 && constant.equalsTo(((Root) other).rationalPart) && sum.getFirst().coefficient.equalsTo(((Root) other).coefficient) && sum.getFirst().radical.equalsTo(((Root) other).radical) && sum.getFirst().power.equalsTo(((Root) other).power);
         else if(other instanceof RootSum){
             if(((RootSum) other).sum.size() != this.sum.size()) return false;
             for(int i = 0; i < this.sum.size(); i++)
                 if(((RootSum) other).sum.get(i).notEqualsTo(this.sum.get(i))) return false;
-            return true;
+            return !this.constant.notEqualsTo(((RootSum) other).constant);
         }
-        return false;
+        throw new IllegalArgumentException("Error: Operation with these types together not supported yet");
     }
     @Override
     public boolean notEqualsTo(Atom other) {return !equalsTo(other);}
-    public boolean isInteger(){return sum.size() == 1 && sum.getFirst().isInteger();}
+    public boolean isNotInteger(){return sum.isEmpty() && constant.denominator.equalsTo(LargeInteger.one);}
+    public boolean isReal(){
+        for (Root root : sum) if (root.isNotReal()) return false;
+        return true;
+    }
     @Override
     public LargeInteger floor() {
+        if(!this.isReal()) throw new IllegalStateException("Error: Cannot floor a non-real atom");
         ArrayList<LargeFraction> floors = new ArrayList<>();
         ArrayList<LargeFraction> ceils = new ArrayList<>();
         for(Root r: this.sum){
             LargeFraction F = (LargeFraction) r.floor().divide(LargeInteger.one);
             floors.add(F);
-            if(r.isInteger())
-                F = (LargeFraction) F.add(LargeInteger.one);
+            if(r.isNotInteger()) F = (LargeFraction) F.add(LargeInteger.one);
             ceils.add(F);
         }
+        floors.add((LargeFraction) constant.floor().divide(LargeInteger.one));
+        ceils.add((LargeFraction) constant.ceil().divide(LargeInteger.one));
         LargeInteger result;
         while(true){
             LargeFraction floorSum = new LargeFraction(0);
             LargeFraction ceilSum = new LargeFraction(0);
-            //store a list
-            ArrayList<LargeFraction> list = new ArrayList<>();
-            for(int i = 0; i < floors.size(); i++)
-                list.add((LargeFraction) ceils.get(i).subtract(floors.get(i)));
-            LargeFraction diff = LargeFraction.max(list);
             for(int i = 0; i < floors.size(); i++){
                 LargeFraction mediant = new LargeFraction((LargeInteger) floors.get(i).numerator.add(ceils.get(i).numerator), (LargeInteger) floors.get(i).denominator.add(ceils.get(i).denominator));
                 if(mediant.compareTo(sum.get(i)) == -1) floors.set(i, mediant);
@@ -2173,103 +2232,111 @@ class RootSum extends ScalarAtom{
     @Override
     public LargeInteger ceil() {
         LargeInteger I = this.floor();
-        if(this.isInteger())
-            I = (LargeInteger) I.add(LargeInteger.one);
+        if(this.isNotInteger()) I = (LargeInteger) I.add(LargeInteger.one);
         return I;
     }
     @Override
-    public long sign() {return 0;}
+    public long sign() {
+        LargeInteger I = this.floor();
+        LargeInteger J = I.magnitude().multiply(I.sign());
+        if(this.isNotInteger()) J = J.add(1);
+        if(I.greaterThanOrEqualTo(LargeInteger.zero) && J.greaterThanOrEqualTo(LargeInteger.one)) return 1;
+        else if(J.lesserThanOrEqualTo(LargeInteger.zero) && I.lesserThanOrEqualTo(LargeInteger.negativeOne)) return -1;
+        return 0;
+    }
     @Override
     public ScalarAtom magnitude() {return null;}
     @Override
-    public long compareMags(ScalarAtom other) {return 0;}
+    public long compareMags(ScalarAtom other) {return this.magnitude().subtract(other.magnitude()).sign();}
     @Override
-    public long compareTo(ScalarAtom other) {return 0;}
+    public long compareTo(ScalarAtom other) {return this.subtract(other).sign();}
+    public boolean greaterThan(ScalarAtom other) {return this.compareTo(other) > 0;}
+    public boolean lessThan(ScalarAtom other) {return this.compareTo(other) < 0;}
+    public boolean greaterThanOrEqualTo(ScalarAtom other) {return this.compareTo(other) >= 0;}
+    public boolean lesserThanOrEqualTo(ScalarAtom other) {return this.compareTo(other) <= 0;}
     @Override
-    public boolean greaterThan(ScalarAtom other) {return false;}
-    @Override
-    public boolean lessThan(ScalarAtom other) {return false;}
-    @Override
-    public boolean greaterThanOrEqualTo(ScalarAtom other) {return false;}
-    @Override
-    public boolean lesserThanOrEqualTo(ScalarAtom other) {return false;}
-    @Override
-    public ScalarAtom negate() {return null;}
+    public ScalarAtom negate() {
+        ArrayList<Root> rt =  new ArrayList<>();
+        for(Root r: this.sum)
+            rt.add((Root) r.negate());
+        return new RootSum(rt, new LargeFraction(0));
+    }
     @Override
     public ScalarAtom add(ScalarAtom other) {
-        if(other instanceof LargeInteger || other instanceof LargeFraction) {
-            ArrayList<Root> rt = new ArrayList<>();
-            for (Root l : sum) rt.add(new Root(l.rationalPart, l.coefficient, l.radical, l.power));
-            rt.add(new Root((LargeFraction) other.divide(LargeInteger.one), new LargeFraction(0), new LargeFraction(0), new LargeFraction(1)));
-            return new RootSum(rt);
-        }else if(other instanceof LargeExponent){
+        if(other instanceof LargeInteger || other instanceof LargeFraction)
+            return new RootSum(this.sum, (LargeFraction) this.constant.add(other));
+        else if(other instanceof LargeExponent){
             ArrayList<Root> rt = new ArrayList<>();
             for (Root l : sum) rt.add(new Root(l.rationalPart, l.coefficient, l.radical, l.power));
             rt.add(new Root(new LargeFraction(0), new LargeFraction(1), (LargeExponent) other));
-            return new RootSum(rt);
+            return new RootSum(rt, this.constant);
         }else if(other instanceof Root){
             ArrayList<Root> rt = new ArrayList<>();
-            for(Root l: sum) rt.add(new Root(l.rationalPart, l.coefficient, l.radical, l.power));
+            for(Root l: sum) rt.add(new Root(new LargeFraction(0), l.coefficient, l.radical, l.power));
             rt.add((Root) other);
-            return new RootSum(rt);
+            return new RootSum(rt, (LargeFraction) this.constant.add(((Root) other).rationalPart));
         }else if(other instanceof RootSum){
             ArrayList<Root> rt = new ArrayList<>();
             for(Root l: sum) rt.add(new Root(l.rationalPart, l.coefficient, l.radical, l.power));
             for(Root l: ((RootSum) other).sum) rt.add(new Root(l.rationalPart, l.coefficient, l.radical, l.power));
-            return new RootSum(rt);
+            return new RootSum(rt, (LargeFraction) this.constant.add(((RootSum) other).constant));
         }
         throw new IllegalArgumentException("Error: Operation with these types together not supported yet");
     }
     @Override
-    public ScalarAtom subtract(ScalarAtom other) {
-        if(other instanceof LargeInteger || other instanceof LargeFraction){
-            ArrayList<Root> rt = new ArrayList<>();
-            for(Root l: sum) rt.add(new Root(l.rationalPart, l.coefficient, l.radical, l.power));
-            rt.add(new Root((LargeFraction) other.divide(LargeInteger.negativeOne), new LargeFraction(0), new LargeFraction(0), new LargeFraction(1)));
-            return new RootSum(rt);
-        }else if(other instanceof LargeExponent){
-            ArrayList<Root> rt = new ArrayList<>();
-            for (Root l : sum) rt.add(new Root(l.rationalPart, l.coefficient, l.radical, l.power));
-            rt.add(new Root(new LargeFraction(0), new LargeFraction(-1), (LargeExponent) other));
-            return new RootSum(rt);
-        }else if(other instanceof Root){
-            ArrayList<Root> rt = new ArrayList<>();
-            for(Root l: sum) rt.add(new Root(l.rationalPart, l.coefficient, l.radical, l.power));
-            rt.add((Root) other.multiply(new LargeFraction(-1)));
-            return new RootSum(rt);
-        }
-        throw new IllegalArgumentException("Error: Operation with these types together not supported yet");
-    }
+    public ScalarAtom subtract(ScalarAtom other){return this.add(other.negate());}
     @Override
-    public ScalarAtom multiply(ScalarAtom other) {
+    public ScalarAtom multiply(ScalarAtom other){
         if(other instanceof LargeInteger || other instanceof LargeFraction){
-            RootSum q = new RootSum(this.sum);
+            RootSum q = new RootSum(this.sum, this.constant);
             q.sum.replaceAll(root -> (Root) root.multiply(other));
+            q.constant = (LargeFraction) q.constant.multiply(other);
             return q;
+        }else if(other instanceof LargeExponent){
+            RootSum q = new RootSum(this.sum, this.constant);
+            q.sum.replaceAll(root -> (Root) root.multiply(other));
+            q.sum.add((Root) q.constant.multiply(other));
+            return new RootSum(q.sum, new LargeFraction(0));
         }else if(other instanceof Root){
             ArrayList<Root> rt = new ArrayList<>();
             for(Root r: this.sum){
                 RootSum rf = (RootSum) r.multiply(other);
                 for(Root s: rf.sum) rt.add(new Root(s.rationalPart, s.coefficient, s.radical, s.power));
             }
-            return new RootSum(rt);
+            rt.add((Root) this.constant.multiply(other));
+            return new RootSum(rt, new LargeFraction(0));
+        }else if(other instanceof RootSum){
+            RootSum result = new RootSum();
+            // constant * constant
+            result.constant = (LargeFraction) this.constant.multiply(((RootSum) other).constant);
+            // this constant * other root terms
+            for(Root r : ((RootSum) other).sum)
+                result = (RootSum) result.add(r.multiply(this.constant));
+            // other constant * this root terms
+            for(Root r : this.sum)
+                result = (RootSum) result.add(r.multiply(((RootSum) other).constant));
+            // root terms * root terms
+            for(Root r1 : this.sum)
+                for(Root r2 : ((RootSum) other).sum)
+                    result = (RootSum) result.add(r1.multiply(r2));
+            return result;
         }
         throw new IllegalArgumentException("Error: Operation with these types together not supported yet");
     }
     @Override
-    public ScalarAtom square() {return null;}
+    public ScalarAtom square() {return this.multiply(this);}
     @Override
-    public ScalarAtom cube() {return null;}
+    public ScalarAtom cube() {return this.square().multiply(this);}
+    @Override
+    public ScalarAtom percent() {return this.multiply(new LargeFraction("1/100"));}
+    @Override
+    public ScalarAtom permille() {return this.multiply(new LargeFraction("1/1000"));}
     @Override
     public RootSum reciprocal(){return null;}
     @Override
     public ScalarAtom divide(ScalarAtom other) {return other.reciprocal().multiply(this);}
     @Override
     public ScalarAtom mod(ScalarAtom other) {return this.subtract(this.divide(other).floor().multiply(other));}
-    @Override
-    public ScalarAtom percent() {return this.multiply(new LargeFraction("0.01"));}
-    @Override
-    public ScalarAtom permille() {return this.multiply(new LargeFraction("0.001"));}
 }
 class Logarithm extends ScalarAtom {
     public LargeFraction arg;
